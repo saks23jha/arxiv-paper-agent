@@ -1,0 +1,8 @@
+langgraph
+curl-cffi
+pymupdf
+faiss-cpu
+sentence-transformers
+google-genai
+python-dotenv
+numpy
