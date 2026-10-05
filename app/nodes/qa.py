@@ -1,5 +1,6 @@
 from typing import List, Dict
 import os
+import time
 
 from dotenv import load_dotenv
 from google import genai
@@ -10,6 +11,7 @@ from app.services.vector_store import VectorStore
 load_dotenv()
 
 MODEL_NAME = "gemini-3-flash-preview"
+
 
 def get_client():
     api_key = os.getenv("GEMINI_API_KEY")
@@ -86,18 +88,52 @@ USER QUESTION:
 
     client = get_client()
 
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-               
-            ),
-        )
-    except Exception as exc:
+    # Retry temporary Gemini API failures
+    max_retries = 3
+    response = None
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(),
+            )
+
+            # Successful response
+            break
+
+        except Exception as exc:
+            error_message = str(exc)
+
+            # Retry only temporary service/rate-limit errors
+            is_retryable = (
+                "503" in error_message
+                or "UNAVAILABLE" in error_message
+                or "429" in error_message
+                or "RESOURCE_EXHAUSTED" in error_message
+            )
+
+            if is_retryable and attempt < max_retries - 1:
+                wait_time = 2 ** (attempt + 1)
+
+                print(
+                    f"Gemini temporarily unavailable. "
+                    f"Retrying in {wait_time} seconds..."
+                )
+
+                time.sleep(wait_time)
+                continue
+
+            # Non-retryable error OR all retries exhausted
+            raise RuntimeError(
+                f"Failed to generate QA answer: {exc}"
+            ) from exc
+
+    if response is None:
         raise RuntimeError(
-            f"Failed to generate QA answer: {exc}"
-        ) from exc
+            "Failed to generate QA answer after all retry attempts."
+        )
 
     if not response.text:
         raise RuntimeError("The LLM returned an empty answer.")
